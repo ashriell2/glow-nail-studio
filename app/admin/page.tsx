@@ -46,17 +46,24 @@ export default function AdminPage() {
   }, [router]);
 
   // Hizmet Fiyatı Güncelleme
+  // Hizmet Fiyatı Güncelleme
   const updatePrice = async (id: number, newPrice: string) => {
     const price = parseInt(newPrice);
     if (isNaN(price)) return;
 
+    // Supabase'e "Bunu güncelle" diyoruz
     const { error } = await supabase
       .from("services")
       .update({ price })
       .eq("id", id);
 
-    if (!error) {
-      alert("Fiyat güncellendi!");
+    if (error) {
+      // HATA VARSA GÖSTER!
+      console.error(error);
+      alert("Hata oluştu: " + error.message);
+    } else {
+      // Hata yoksa
+      alert("Fiyat başarıyla güncellendi! ✅");
     }
   };
 
