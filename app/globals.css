@@ -1,0 +1,23 @@
+@import "tailwindcss";
+
+/* Tailwind v4'te renkleri artık buraya tanımlıyoruz. 
+   Eski config dosyasıyla uğraşmaya gerek yok!
+*/
+@theme {
+  /* Marka Rengi: Canlı Pembe */
+  --color-primary: #FF69B4;
+  --color-primary-light: #FFB6C1;
+  --color-primary-dark: #C71585;
+
+  /* Arka Plan: Çok açık pembe/beyaz */
+  --color-background: #FFF5FA;
+  
+  /* Kartlar: Beyaz */
+  --color-surface: #FFFFFF;
+}
+
+/* Sayfanın genel arka plan rengini zorla ayarla */
+body {
+  background-color: var(--color-background);
+  color: #1a1a1a; /* Yazılar koyu gri */
+}
