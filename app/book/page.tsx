@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import Navbar from "@/components/Navbar";
-import { Check, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Loader2, XCircle } from "lucide-react"; // XCircle ikonu eklendi
 import { useRouter } from "next/navigation";
 
 export default function BookPage() {
@@ -11,8 +11,8 @@ export default function BookPage() {
   const [selectedService, setSelectedService] = useState<any>(null);
   const [weekOffset, setWeekOffset] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [takenSlots, setTakenSlots] = useState<string[]>([]); // Dolu saatleri tutacak liste
 
-  // Kullanıcı ve Hizmetleri Çek
   useEffect(() => {
     const checkUser = async () => {
       const { data: { user } } = await supabase.auth.getUser();
@@ -20,14 +20,43 @@ export default function BookPage() {
     };
     checkUser();
     
-    const fetchServices = async () => {
-      const { data } = await supabase.from("services").select("*");
-      if (data) setServices(data);
+    const fetchData = async () => {
+      // 1. Hizmetleri Çek
+      const { data: servicesData } = await supabase.from("services").select("*");
+      if (servicesData) setServices(servicesData);
+
+      // 2. DOLU RANDEVULARI ÇEK
+      // Sadece 'pending' (onay bekleyen) ve onaylanmışları alalım, iptal edilenleri almayalım.
+      const { data: appointmentsData } = await supabase
+        .from("appointments")
+        .select("start_time");
+      
+      if (appointmentsData) {
+        // Gelen tarihleri listeye atıyoruz
+        const slots = appointmentsData.map(app => new Date(app.start_time).toISOString());
+        setTakenSlots(slots);
+      }
     };
-    fetchServices();
+    fetchData();
   }, [router]);
 
-  // --- DÜZELTİLEN KISIM BURASI ---
+  // --- KONTROL MEKANİZMASI ---
+  // Bir kutucuğun tarih ve saati dolu mu diye bakar
+  const isSlotBooked = (date: Date, time: string) => {
+    const [hours, minutes] = time.split(':');
+    
+    // Kontrol edilecek saati oluştur
+    const checkDate = new Date(date);
+    checkDate.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+
+    // Listede bu saat var mı diye bak (Milisaniye cinsinden karşılaştırma en garantisidir)
+    return takenSlots.some(slotISO => {
+      const takenDate = new Date(slotISO);
+      return takenDate.getTime() === checkDate.getTime();
+    });
+  };
+  // ---------------------------
+
   const handleBooking = async (date: Date, time: string) => {
     if (!selectedService) return;
     
@@ -35,31 +64,30 @@ export default function BookPage() {
 
     setLoading(true);
     try {
-      // 1. Başlangıç Tarihini Ayarla
       const [hours, minutes] = time.split(':');
       const startTime = new Date(date);
       startTime.setHours(parseInt(hours), parseInt(minutes), 0, 0);
 
-      // 2. Bitiş Tarihini Hesapla (Başlangıç + Hizmet Süresi)
       const endTime = new Date(startTime);
       endTime.setMinutes(startTime.getMinutes() + selectedService.duration_min);
 
-      // 3. Kullanıcıyı Al
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Kullanıcı bulunamadı");
 
-      // 4. Veritabanına Yaz (Artık end_time da gönderiyoruz!)
       const { error } = await supabase.from("appointments").insert({
         customer_id: user.id,
         service_id: selectedService.id,
         start_time: startTime.toISOString(),
-        end_time: endTime.toISOString(), // <-- İŞTE EKSİK OLAN PARÇA BUYDU
+        end_time: endTime.toISOString(),
       });
 
       if (error) throw error;
 
       alert("Randevunuz başarıyla oluşturuldu! Teşekkür ederiz.");
-      router.push("/"); 
+      
+      // Sayfayı yenilemeden kutuyu kırmızı yapmak için listeyi güncelle
+      setTakenSlots([...takenSlots, startTime.toISOString()]);
+      
     } catch (error: any) {
       console.error(error);
       alert("Hata oluştu: " + error.message);
@@ -67,7 +95,6 @@ export default function BookPage() {
       setLoading(false);
     }
   };
-  // -------------------------------
 
   const getWeekDays = () => {
     const days = [];
@@ -163,16 +190,34 @@ export default function BookPage() {
                     <div className="p-3 text-center text-sm font-medium text-gray-500 bg-gray-50 flex items-center justify-center">
                       {time}
                     </div>
-                    {weekDays.map((date, i) => (
-                      <div key={i} className="p-1 border-l border-gray-100 h-16 relative group">
-                        <button 
-                          onClick={() => handleBooking(date, time)}
-                          className="w-full h-full rounded-lg bg-green-50 hover:bg-primary hover:text-white text-green-700 transition flex flex-col items-center justify-center gap-1"
-                        >
-                           <span className="text-xs font-bold">Müsait</span>
-                        </button>
-                      </div>
-                    ))}
+                    {weekDays.map((date, i) => {
+                      // BURASI ÖNEMLİ: KONTROL EDİYORUZ
+                      const booked = isSlotBooked(date, time);
+                      
+                      return (
+                        <div key={i} className="p-1 border-l border-gray-100 h-16 relative group">
+                          {booked ? (
+                            // DOLU İSE BU BUTON GÖZÜKÜR
+                            <button 
+                              disabled
+                              className="w-full h-full rounded-lg bg-red-50 text-red-400 border border-red-100 flex flex-col items-center justify-center cursor-not-allowed opacity-80"
+                            >
+                               <span className="text-xs font-bold flex items-center gap-1">
+                                 <XCircle className="w-3 h-3" /> DOLU
+                               </span>
+                            </button>
+                          ) : (
+                            // BOŞ İSE BU BUTON GÖZÜKÜR
+                            <button 
+                              onClick={() => handleBooking(date, time)}
+                              className="w-full h-full rounded-lg bg-green-50 hover:bg-primary hover:text-white text-green-700 transition flex flex-col items-center justify-center gap-1"
+                            >
+                               <span className="text-xs font-bold">Müsait</span>
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 ))}
               </div>
