@@ -45,25 +45,27 @@ export default function BookPage() {
     fetchData();
   }, [router]);
 
-  // --- YENİ VE GÜÇLÜ KONTROL MEKANİZMASI ---
+  // --- %100 GARANTİLİ KONTROL MEKANİZMASI (SAAT DİLİMİNDEN ETKİLENMEZ) ---
   const isSlotBooked = (date: Date, time: string) => {
-    const [hours, minutes] = time.split(':');
+    // 1. Ekrandaki kutucuğun saatini sayıya çevir (Örn: "09:00" -> 9 ve 0)
+    const [targetHour, targetMinute] = time.split(':').map(Number);
     
-    // Kontrol edilen kutucuğun tarihini oluştur
-    const checkDate = new Date(date);
-    checkDate.setHours(parseInt(hours), parseInt(minutes), 0, 0);
-
-    // Kıyaslama yaparken .getTime() yerine ISO string'in ilk 16 karakterini (Dakikaya kadar) karşılaştırıyoruz.
-    // Bu yöntem milisaniye farklarını ve saat dilimi sapmalarını yok sayar.
-    // Örnek Format: "2026-02-06T09:00"
-    const checkString = checkDate.toISOString().slice(0, 16);
-
+    // 2. Veritabanındaki tüm randevuları tek tek gez
     return takenSlots.some(slotISO => {
-      // Veritabanından gelen saati de aynı formata çevir
-      const takenString = new Date(slotISO).toISOString().slice(0, 16);
-      return takenString === checkString;
+      // Veritabanındaki UTC saati, tarayıcının yerel saatine çevir
+      const dbDate = new Date(slotISO); 
+      
+      // 3. KARŞILAŞTIRMA: Yıl, Ay, Gün ve Saat BİREBİR aynı mı?
+      const isSameYear = dbDate.getFullYear() === date.getFullYear();
+      const isSameMonth = dbDate.getMonth() === date.getMonth();
+      const isSameDay = dbDate.getDate() === date.getDate();
+      const isSameTime = dbDate.getHours() === targetHour && dbDate.getMinutes() === targetMinute;
+
+      // Hepsi tutuyorsa bu saat DOLUDUR
+      return isSameYear && isSameMonth && isSameDay && isSameTime;
     });
   };
+  
   // -------------------------------------------
 
   const handleBooking = async (date: Date, time: string) => {
