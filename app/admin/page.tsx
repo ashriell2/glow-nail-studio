@@ -69,45 +69,77 @@ export default function AdminPage() {
     if (!error) alert("Fiyat güncellendi! ✅");
   };
 
+ // --- YENİLENMİŞ SAAT KAPATMA (Hataya Yer Yok) ---
   const handleBlockSlot = async () => {
     if (!blockDate || !blockTime) return alert("Tarih/Saat seçin");
     const blockedService = services.find(s => s.name.includes("KAPALI"));
     if (!blockedService) return alert("'KAPALI' servisi bulunamadı");
     
-    if(!confirm("Kapatmak istiyor musunuz?")) return;
+    if(!confirm("Bu saati kapatmak istiyor musunuz?")) return;
 
-    const [h, m] = blockTime.split(':');
-    const start = new Date(blockDate);
-    start.setHours(parseInt(h), parseInt(m), 0, 0);
+    // 1. Tarihi Güvenli Parçala (YYYY-MM-DD)
+    const [year, month, day] = blockDate.split('-').map(Number);
+    const [hour, minute] = blockTime.split(':').map(Number);
+
+    // 2. Bilgisayarın Yerel Saatinde Tarih Oluştur (Ay 0'dan başlar, o yüzden month-1)
+    const start = new Date(year, month - 1, day, hour, minute, 0, 0);
+    
+    // Bitiş saati (1 saat sonrası)
     const end = new Date(start);
     end.setMinutes(start.getMinutes() + 60);
 
     const { data: { user } } = await supabase.auth.getUser();
-    await supabase.from("appointments").insert({
-        customer_id: user?.id, service_id: blockedService.id,
-        start_time: start.toISOString(), end_time: end.toISOString(), status: 'blocked'
+    
+    const { error } = await supabase.from("appointments").insert({
+        customer_id: user?.id, 
+        service_id: blockedService.id,
+        start_time: start.toISOString(), // Artık doğru saat gidecek!
+        end_time: end.toISOString(), 
+        status: 'blocked'
     });
-    alert("Kapandı!");
-    window.location.reload();
+
+    if(error) alert("Hata: " + error.message);
+    else {
+        alert("Saat başarıyla kapatıldı! ⛔");
+        window.location.reload();
+    }
   };
 
+  // --- YENİLENMİŞ TÜM GÜN KAPATMA ---
   const handleBlockDay = async () => {
     if (!blockDate) return alert("Tarih seçin");
     const blockedService = services.find(s => s.name.includes("KAPALI"));
-    if(!confirm("TÜM GÜNÜ kapatmak emin misiniz?")) return;
+    if(!confirm(`DİKKAT: ${blockDate} tarihindeki TÜM GÜNÜ kapatmak üzeresiniz.`)) return;
 
     const { data: { user } } = await supabase.auth.getUser();
+    
+    // 1. Tarihi Parçala
+    const [year, month, day] = blockDate.split('-').map(Number);
+
     const inserts = timeSlots.map(time => {
-        const [h, m] = time.split(':');
-        const start = new Date(blockDate);
-        start.setHours(parseInt(h), parseInt(m), 0, 0);
+        const [h, m] = time.split(':').map(Number);
+        
+        // 2. Her saat için yerel saat objesi oluştur
+        const start = new Date(year, month - 1, day, h, m, 0, 0);
         const end = new Date(start);
         end.setMinutes(start.getMinutes() + 60);
-        return { customer_id: user?.id, service_id: blockedService.id, start_time: start.toISOString(), end_time: end.toISOString(), status: 'blocked' };
+
+        return { 
+            customer_id: user?.id, 
+            service_id: blockedService.id, 
+            start_time: start.toISOString(), 
+            end_time: end.toISOString(), 
+            status: 'blocked' 
+        };
     });
-    await supabase.from("appointments").insert(inserts);
-    alert("Gün Kapandı!");
-    window.location.reload();
+
+    const { error } = await supabase.from("appointments").insert(inserts);
+    
+    if(error) alert("Hata: " + error.message);
+    else {
+        alert("Tüm gün başarıyla kapatıldı! ⛔");
+        window.location.reload();
+    }
   };
 
   const handleDelete = async (id: string) => {
