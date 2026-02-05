@@ -12,9 +12,9 @@ export default function BookPage() {
   const [weekOffset, setWeekOffset] = useState(0);
   const [loading, setLoading] = useState(false);
   const [takenSlots, setTakenSlots] = useState<string[]>([]);
+  const [debugCount, setDebugCount] = useState(0); // Hata ayıklama için sayaç
 
   useEffect(() => {
-    // Giriş kontrolü
     const checkUser = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) router.push("/login");
@@ -22,32 +22,49 @@ export default function BookPage() {
     checkUser();
     
     const fetchData = async () => {
-      // Hizmetleri çek
+      // 1. Hizmetleri Çek
       const { data: servicesData } = await supabase.from("services").select("*").order('id');
-      if (servicesData) setServices(servicesData.filter(s => !s.name.includes("KAPALI"))); // Gizli servisi gösterme
+      if (servicesData) setServices(servicesData.filter(s => !s.name.includes("KAPALI"))); 
 
-      // Dolu randevuları çek
-      const { data: appointmentsData } = await supabase
+      // 2. DOLU RANDEVULARI ÇEK (Hata olursa konsola yaz)
+      const { data: appointmentsData, error } = await supabase
         .from("appointments")
         .select("start_time");
       
+      if (error) {
+        console.error("Veri çekme hatası:", error);
+      }
+
       if (appointmentsData) {
+        // Gelen tarihleri ISO formatında listeye at
         const slots = appointmentsData.map(app => new Date(app.start_time).toISOString());
         setTakenSlots(slots);
+        setDebugCount(slots.length); // Ekrana yazdırmak için sayı
       }
     };
     fetchData();
   }, [router]);
 
+  // --- YENİ VE GÜÇLÜ KONTROL MEKANİZMASI ---
   const isSlotBooked = (date: Date, time: string) => {
     const [hours, minutes] = time.split(':');
+    
+    // Kontrol edilen kutucuğun tarihini oluştur
     const checkDate = new Date(date);
     checkDate.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+
+    // Kıyaslama yaparken .getTime() yerine ISO string'in ilk 16 karakterini (Dakikaya kadar) karşılaştırıyoruz.
+    // Bu yöntem milisaniye farklarını ve saat dilimi sapmalarını yok sayar.
+    // Örnek Format: "2026-02-06T09:00"
+    const checkString = checkDate.toISOString().slice(0, 16);
+
     return takenSlots.some(slotISO => {
-      const takenDate = new Date(slotISO);
-      return takenDate.getTime() === checkDate.getTime();
+      // Veritabanından gelen saati de aynı formata çevir
+      const takenString = new Date(slotISO).toISOString().slice(0, 16);
+      return takenString === checkString;
     });
   };
+  // -------------------------------------------
 
   const handleBooking = async (date: Date, time: string) => {
     if (!selectedService) return;
@@ -58,6 +75,7 @@ export default function BookPage() {
       const [hours, minutes] = time.split(':');
       const startTime = new Date(date);
       startTime.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+      
       const endTime = new Date(startTime);
       endTime.setMinutes(startTime.getMinutes() + selectedService.duration_min);
 
@@ -72,8 +90,11 @@ export default function BookPage() {
       });
 
       if (error) throw error;
+
       alert("Randevunuz başarıyla oluşturuldu! Teşekkür ederiz.");
-      setTakenSlots([...takenSlots, startTime.toISOString()]);
+      // Listeyi güncelle ki sayfa yenilenmeden kırmızı olsun
+      const newSlotISO = startTime.toISOString();
+      setTakenSlots([...takenSlots, newSlotISO]);
       
     } catch (error: any) {
       alert("Hata: " + error.message);
@@ -118,24 +139,28 @@ export default function BookPage() {
             <div className="flex justify-between mb-4">
                <h2 className="font-bold">Tarih Seçin</h2>
                <div className="flex gap-2">
-                 <button onClick={()=>setWeekOffset(weekOffset-1)} disabled={weekOffset===0}><ChevronLeft/></button>
-                 <button onClick={()=>setWeekOffset(weekOffset+1)}><ChevronRight/></button>
+                 <button onClick={()=>setWeekOffset(weekOffset-1)} disabled={weekOffset===0} className="p-2 hover:bg-gray-100 rounded"><ChevronLeft/></button>
+                 <button onClick={()=>setWeekOffset(weekOffset+1)} className="p-2 hover:bg-gray-100 rounded"><ChevronRight/></button>
                </div>
             </div>
-            <div className="overflow-x-auto border rounded-xl">
+            <div className="overflow-x-auto border rounded-xl shadow-sm">
               <div className="min-w-[800px]">
                   <div className="grid grid-cols-8 border-b bg-gray-50">
-                      <div className="p-4">Saat</div>
-                      {weekDays.map((d,i)=><div key={i} className="p-4 text-center font-bold border-l">{d.getDate()} <span className="text-xs block text-gray-400">{d.toLocaleDateString('tr-TR',{weekday:'short'})}</span></div>)}
+                      <div className="p-4 font-bold text-gray-400">Saat</div>
+                      {weekDays.map((d,i)=><div key={i} className="p-4 text-center font-bold border-l">{d.getDate()} <span className="text-xs block text-gray-400 uppercase">{d.toLocaleDateString('tr-TR',{weekday:'short'})}</span></div>)}
                   </div>
                   {timeSlots.map(time => (
-                      <div key={time} className="grid grid-cols-8 border-b last:border-0">
-                          <div className="p-3 text-center text-sm text-gray-500">{time}</div>
+                      <div key={time} className="grid grid-cols-8 border-b last:border-0 h-16">
+                          <div className="p-3 text-center text-sm text-gray-500 flex items-center justify-center bg-gray-50 font-medium">{time}</div>
                           {weekDays.map((d,i) => (
-                              <div key={i} className="p-1 border-l h-14">
+                              <div key={i} className="p-1 border-l group relative">
                                   {isSlotBooked(d, time) ? 
-                                      <button disabled className="w-full h-full bg-red-50 text-red-300 text-xs font-bold rounded flex items-center justify-center"><XCircle className="w-3 h-3 mr-1"/> DOLU</button> :
-                                      <button onClick={()=>handleBooking(d, time)} className="w-full h-full bg-green-50 hover:bg-primary hover:text-white text-green-700 text-xs font-bold rounded transition">Müsait</button>
+                                      <button disabled className="w-full h-full bg-red-50 text-red-400 text-xs font-bold rounded-lg border border-red-100 flex flex-col items-center justify-center cursor-not-allowed">
+                                        <XCircle className="w-4 h-4 mb-1"/> DOLU
+                                      </button> :
+                                      <button onClick={()=>handleBooking(d, time)} className="w-full h-full bg-green-50 hover:bg-primary hover:text-white text-green-700 text-xs font-bold rounded-lg transition border border-green-100 hover:border-primary flex items-center justify-center">
+                                        Müsait
+                                      </button>
                                   }
                               </div>
                           ))}
@@ -143,6 +168,8 @@ export default function BookPage() {
                   ))}
               </div>
             </div>
+            {/* DEBUG BİLGİSİ (Sorunu çözünce bu satırı silebilirsin) */}
+            <p className="text-xs text-gray-300 mt-4 text-center">Sistem: {debugCount} adet dolu randevu bulundu.</p>
           </div>
         )}
       </div>
