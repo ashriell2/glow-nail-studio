@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import Navbar from "@/components/Navbar";
 import { useRouter } from "next/navigation";
-import { Calendar, Clock, Trash2, User } from "lucide-react";
+import { Calendar, Clock, Trash2, User, LogOut } from "lucide-react"; // LogOut ikonu eklendi
 
 export default function ProfilePage() {
   const router = useRouter();
@@ -13,14 +13,12 @@ export default function ProfilePage() {
 
   useEffect(() => {
     const getData = async () => {
-      // 1. Kullanıcı Giriş Yapmış mı?
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
         router.push("/login");
         return;
       }
 
-      // 2. Profil Bilgilerini Çek (Ad, Telefon)
       const { data: profileData } = await supabase
         .from("profiles")
         .select("*")
@@ -29,16 +27,11 @@ export default function ProfilePage() {
       
       setProfile(profileData);
 
-      // 3. Randevuları Çek (Hizmet adıyla birlikte!)
-      // select içinde '*, services(*)' diyerek iki tabloyu birleştiriyoruz.
       const { data: appointmentData } = await supabase
         .from("appointments")
-        .select(`
-          *,
-          services ( name, price, duration_min )
-        `)
+        .select(`*, services ( name, price, duration_min )`)
         .eq("customer_id", user.id)
-        .order("start_time", { ascending: true }); // En yakın tarih en üstte
+        .order("start_time", { ascending: true });
 
       if (appointmentData) setAppointments(appointmentData);
       setLoading(false);
@@ -47,15 +40,18 @@ export default function ProfilePage() {
     getData();
   }, [router]);
 
-  // Randevu İptal Etme Fonksiyonu
+  // ÇIKIŞ YAPMA FONKSİYONU
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    router.push("/login"); // Giriş sayfasına at
+    router.refresh();
+  };
+
   const handleCancel = async (id: string) => {
     if (!confirm("Bu randevuyu iptal etmek istediğinize emin misiniz?")) return;
-
     const { error } = await supabase.from("appointments").delete().eq("id", id);
-    
     if (!error) {
       alert("Randevu iptal edildi.");
-      // Listeden silineni ekrandan da kaldır
       setAppointments(appointments.filter((app) => app.id !== id));
     } else {
       alert("Hata oluştu.");
@@ -70,27 +66,35 @@ export default function ProfilePage() {
       
       <div className="max-w-4xl mx-auto px-4 pt-24">
         
-        {/* Üst Kısım: Profil Kartı */}
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-pink-100 flex items-center gap-4 mb-8">
-          <div className="bg-pink-100 p-4 rounded-full">
-            <User className="w-8 h-8 text-primary" />
+        {/* Profil Kartı */}
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-pink-100 flex items-center justify-between mb-8">
+          <div className="flex items-center gap-4">
+            <div className="bg-pink-100 p-4 rounded-full">
+                <User className="w-8 h-8 text-primary" />
+            </div>
+            <div>
+                <h1 className="text-2xl font-bold text-gray-900">{profile?.full_name || "Misafir Kullanıcı"}</h1>
+                <p className="text-gray-500">{profile?.phone ? `0${profile.phone}` : "Telefon yok"}</p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">{profile?.full_name || "Misafir Kullanıcı"}</h1>
-            <p className="text-gray-500">{profile?.phone ? `0${profile.phone}` : "Telefon yok"}</p>
-          </div>
+          
+          {/* ÇIKIŞ BUTONU */}
+          <button 
+            onClick={handleLogout}
+            className="flex items-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg transition font-medium"
+          >
+            <LogOut className="w-4 h-4" />
+            <span className="hidden sm:inline">Çıkış Yap</span>
+          </button>
         </div>
 
-        {/* Alt Kısım: Randevularım */}
+        {/* Randevularım */}
         <h2 className="text-xl font-bold text-gray-800 mb-4">Randevularım</h2>
         
         {appointments.length === 0 ? (
           <div className="text-center py-12 bg-white rounded-2xl border border-dashed border-gray-300">
             <p className="text-gray-500">Henüz aktif bir randevunuz yok.</p>
-            <button 
-              onClick={() => router.push("/book")}
-              className="mt-4 text-primary font-bold hover:underline"
-            >
+            <button onClick={() => router.push("/book")} className="mt-4 text-primary font-bold hover:underline">
               Hemen Randevu Al
             </button>
           </div>
@@ -100,8 +104,6 @@ export default function ProfilePage() {
               const startDate = new Date(app.start_time);
               return (
                 <div key={app.id} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:shadow-md transition">
-                  
-                  {/* Sol: Tarih ve Hizmet */}
                   <div className="flex items-start gap-4">
                     <div className="bg-pink-50 text-primary-dark font-bold rounded-xl p-3 text-center min-w-[80px]">
                       <div className="text-sm uppercase">{startDate.toLocaleDateString("tr-TR", { month: "short" })}</div>
@@ -110,30 +112,17 @@ export default function ProfilePage() {
                     <div>
                       <h3 className="text-lg font-bold text-gray-900">{app.services?.name}</h3>
                       <div className="flex items-center gap-4 text-sm text-gray-500 mt-1">
-                        <div className="flex items-center gap-1">
-                          <Clock className="w-4 h-4" />
-                          {startDate.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}
-                        </div>
+                        <div className="flex items-center gap-1"><Clock className="w-4 h-4" />{startDate.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}</div>
                         <div>{app.services?.price} ₺</div>
                       </div>
-                      {/* Durum Etiketi */}
-                      <span className={`inline-block mt-2 text-xs px-2 py-1 rounded-full ${
-                        app.status === 'pending' ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'
-                      }`}>
+                      <span className={`inline-block mt-2 text-xs px-2 py-1 rounded-full ${app.status === 'pending' ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'}`}>
                         {app.status === 'pending' ? 'Onay Bekliyor' : 'Onaylandı'}
                       </span>
                     </div>
                   </div>
-
-                  {/* Sağ: İptal Butonu */}
-                  <button 
-                    onClick={() => handleCancel(app.id)}
-                    className="flex items-center gap-2 text-red-500 hover:bg-red-50 px-4 py-2 rounded-lg transition text-sm font-medium"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                    İptal Et
+                  <button onClick={() => handleCancel(app.id)} className="flex items-center gap-2 text-red-500 hover:bg-red-50 px-4 py-2 rounded-lg transition text-sm font-medium">
+                    <Trash2 className="w-4 h-4" /> İptal Et
                   </button>
-
                 </div>
               );
             })}
